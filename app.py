@@ -1,4 +1,4 @@
-from flask import Flask
+from flask import Flask, request
 app = Flask(__name__)
 
 @app.route('/home')
@@ -37,3 +37,13 @@ if __name__ == '__main__':
     app.run(debug=True)
 # 127.0.0.1 -> -> localhost
 # 0.0.0.0
+
+
+# http://example.com/posts/ # request
+#
+# http://example.com/ # CORE route
+# posts/ # endpoint
+#
+# api/v1/
+
+# 404 NOT FOUND
