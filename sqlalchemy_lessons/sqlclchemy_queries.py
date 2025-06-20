@@ -10,6 +10,7 @@
 #
 # from datetime import datetime, timezone
 import datetime
+import json
 
 from sqlalchemy import or_
 
@@ -119,8 +120,9 @@ from sqlalchemy_lessons import engine
 from sqlalchemy_lessons.db_connector import DBConnector
 from sqlalchemy_lessons.social_blogs_models import Role, User, News, Comment
 from sqlalchemy import desc, or_, and_, not_, func, text
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import aliased, joinedload, contains_eager
 
+from sqlalchemy_lessons.social_blogs_schemas import UserWithNewsSchema
 
 with DBConnector(engine=engine) as session:
     # users = session.query(User) # SELECT * from users;
@@ -263,53 +265,168 @@ with DBConnector(engine=engine) as session:
     #     print(f"{n.author_id=}  {n.count_of_news=}")
 
 
-    avg_rating_subq = session.query(
-        func.avg(User.rating).label('avg_rating')
-    ).scalar_subquery()
-
-    core_query = session.query(
-        User.email,
-        User.rating
-    ).filter(User.rating > avg_rating_subq).all()
-
-    for u in core_query:
-        print(f"{u.email}     {u.rating}")
-
-
-    req_role = session.query(
-        Role.id
-    ).filter(Role.name == 'moderator').scalar_subquery()
-
-
-    only_moderators = session.query(
-        User.role_id,
-        User.email
-    ).filter(User.role_id == req_role).all()
-
-    for u in only_moderators:
-        print(f"{u.role_id}     {u.email}")
-
-
+    # avg_rating_subq = session.query(
+    #     func.avg(User.rating).label('avg_rating')
+    # ).scalar_subquery()
+    #
+    # core_query = session.query(
+    #     User.email,
+    #     User.rating
+    # ).filter(User.rating > avg_rating_subq).all()
+    #
+    # for u in core_query:
+    #     print(f"{u.email}     {u.rating}")
+    #
+    #
+    # req_role = session.query(
+    #     Role.id
+    # ).filter(Role.name == 'moderator').scalar_subquery()
+    #
+    #
+    # only_moderators = session.query(
+    #     User.role_id,
+    #     User.email
+    # ).filter(User.role_id == req_role).all()
+    #
+    # for u in only_moderators:
+    #     print(f"{u.role_id}     {u.email}")
 
 
+    # join
+    # selecinjoin
+    # subqueryload
+    # joinedload
 
 
-# def greet(name: str) -> str:
-#     return f"Greetings, {name}"
+    # only_moderators = session.query(
+    #     User.last_name,
+    #     User.rating,
+    #     Role.name.label('role_name')
+    # ).join(User.role).filter(
+    # # ).join(Role, Role.id == User.role_id).filter(
+    #     Role.name == 'moderator'
+    # ).all()
+    #
+    # for u in only_moderators:
+    #     print(f"{u.last_name}     {u.rating}     {u.role_name}")
+    #
+
+    # outerjoin
+
+    # authors_and_news = session.query(
+    #     User.email,
+    #     User.rating,
+    #     Role.name.label('role_name'),
+    #     News.title.label('news_title'),
+    #     News.moderated.label('news_moderated')
+    # ).outerjoin(Role, Role.id == User.role_id).outerjoin(
+    #     User.news
+    #     # News, News.author_id == User.id
+    # ).filter(
+    #     Role.name == 'author'
+    # )
+
+    # all() - []
+    # one() - {} | ERROR
+    # one_or_none() - {} | None | ERROR
+    # first() - {} | None
+    # scalar() - value
+
+    # for u in authors_and_news:
+    #     print(f"{u.email}     {u.rating}     {u.role_name}     {u.news_title}     {u.news_moderated}")
+
+
+
+    # users_with_news = session.query(User).all()
+
+    users_with_news = session.query(User).options(
+        joinedload(User.news)
+    ).all()
+
+
+    res = [
+        UserWithNewsSchema.model_validate(user).model_dump(mode='json')
+        for user in users_with_news
+    ]
+
+
+    print(json.dumps(res, indent=4))
+
+# Только подгрузка связанных объектов (без фильтрации):
+#     joinedload(Model.field)
+#
+# Фильтрация по связанным объектам (с relationship):
+#     join(Model.field) или outerjoin(Model.field) + можно также добавить .options(joinedload(...)) для загрузки.
+#
+# Фильтрация без relationship:
+#     join(Model) или outerjoin(Model) с явным условием типа join(Model, Main.id == Model.id).
 #
 #
-# print(greet("Vlad"))
-#
-# print("Hello!")
+# selectinload() и subqueryload() полезны, когда много связанных объектов.
 
 
-# def factorial(n):
-#     if n == 1:
-#         return n
+
+
+
+# Если вам вдруг будет нужно самим делать джоин в построении запроса и понадобится, чтобы
+# результат амтоматом распознался как вложенный объект - можно использовать так же contains_eager()
+# Это ручная подсказка SQLAlchemy, что вы сами сделали JOIN и SQLAlchemy
+    # # не нужно делать дополнительный запрос для подгрузки связанных данных.
+
+
+    from sqlalchemy.orm import contains_eager
+    from datetime import datetime
+    import json
+
+    users_and_news = (
+        session.query(User)
+        .join(User.role)
+        .join(User.news)
+        .filter(Role.name == "author", News.moderated == 1)
+        .options(
+            # Этим методом вы фактически говорите SQLAlchemy: "используй вот эти данные для поля .related".
+            contains_eager(User.news).joinedload(News.comments)
+        ).all()
+    )
+
+    json_data = [
+        {
+            "id": user.id,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "email": user.email,
+            "phone": user.phone,
+            "role_id": user.role_id,
+            "deleted": user.deleted,
+            "news": [
+                {
+                    "id": n.id,
+                    "title": n.title,
+                    "moderated": n.moderated,
+                    "created_at": datetime.strftime(n.created_at, "%Y-%m-%d %H:%M:%S"),
+                    "comments": [
+                        {
+                            "id": c.id,
+                            "body": c.body,
+                            "deleted": c.deleted,
+                            "created_at": datetime.strftime(c.created_at, "%Y-%m-%d %H:%M:%S")
+                        }
+                        for c in n.comments
+                    ]
+                }
+                for n in user.news
+            ],
+        }
+        for user in users_and_news
+    ]
+
+    print(json.dumps(json_data, indent=4))
+
+
+# 📦 Когда использовать contains_eager
 #
-#     return n * factorial(n - 1)
+#                     Когда	                                                           Почему
+# Сам делаешь JOIN и хочешь заполнить relationship	                Иначе поле будет пустым (ORM не знает про join)
+# Нужно фильтровать по joined таблице, но сохранить eager	            Только contains_eager позволит связать результат
+# Работаешь с aliased() отношениями	                                ORM иначе не поймёт, куда положить результат
 #
-#
-# fact = factorial(5)
-#
-# print(fact)
